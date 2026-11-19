@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 GRID_STEP = 0.8  # canvas pixels per stored signed unit
 CORRECTION_STEP = 2
 TILE_SIZE = 124
+STABLE_SPACING = 6
+MIN_AREA_RATIO = .22
+MAX_EDGE_STRETCH = 2.5
+LIMIT_PASSES = 42
 
 
 def mesh(width, height, step):
@@ -38,30 +42,96 @@ def reconstruct(base, grid, x, y):
 
 
 class OpticalFit:
-    def __init__(self, base):
+    def __init__(self, base, full_resolution=False):
         h, w = base.shape[:2]
         self.size = w, h
-        self.small_size = w // 2, h // 2
-        self.x, self.y = mesh(*self.small_size, 1)
+        self.tracking_size = self.size if full_resolution else (w // 2, h // 2)
+        self.sigma = 1.35 if full_resolution else .9
+        self.x, self.y = mesh(*self.tracking_size, 1)
         self.reference = self.gray(base)
         self.flow = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+        if full_resolution:
+            self.flow.setFinestScale(0)
 
     def gray(self, image):
         luma = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        return cv2.resize(luma, self.small_size, interpolation=cv2.INTER_AREA)
+        if self.tracking_size == self.size:
+            return luma
+        return cv2.resize(luma, self.tracking_size, interpolation=cv2.INTER_AREA)
 
     def solve(self, frame):
-        # Backward flow maps each output coordinate to the shared still. A second
-        # solve on the first warp sharpens contours without accumulating drift.
+        # Align each frame directly to the common still, then refine the first
+        # warp instead of accumulating offsets from previous frames.
         target = self.gray(frame)
         first = self.flow.calc(target, self.reference, None)
         warped = remap(self.reference, self.x + first[..., 0], self.y + first[..., 1])
         second = self.flow.calc(target, warped, None)
         combined = second + remap(first, self.x + second[..., 0], self.y + second[..., 1])
-        full = cv2.resize(cv2.GaussianBlur(combined, (0, 0), .9),
-                          self.size, interpolation=cv2.INTER_LINEAR)
-        full *= np.asarray(self.size, dtype=np.float32) / self.small_size
-        return full
+        smoothed = cv2.GaussianBlur(combined, (0, 0), self.sigma)
+        if self.tracking_size == self.size:
+            return smoothed
+        full = cv2.resize(smoothed, self.size, interpolation=cv2.INTER_LINEAR)
+        return full * (np.asarray(self.size, dtype=np.float32) / self.tracking_size)
+
+
+def quantize_grid(offsets):
+    return np.rint(offsets / GRID_STEP).clip(-128, 127).astype(np.int8)
+
+
+def cell_geometry(grid, width, height):
+    """Area minima and edge-stretch maxima over cells of the bilinear warp."""
+    offsets = grid.astype(np.float32) * GRID_STEP
+    rows, cols = grid.shape[:2]
+    du = np.diff(offsets, axis=1) * ((cols - 1) / (width - 1))
+    dv = np.diff(offsets, axis=0) * ((rows - 1) / (height - 1))
+    du[..., 0] += 1
+    dv[..., 1] += 1
+    top, bottom = du[:-1], du[1:]
+    left, right = dv[:, :-1], dv[:, 1:]
+
+    def det(a, b):
+        return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
+
+    # The Jacobian determinant is affine within a bilinear cell, so its
+    # extrema lie at the four corners. Horizontal and vertical edges bound
+    # the stretch of axes throughout the cell.
+    area = np.minimum.reduce([det(top, left), det(top, right),
+                              det(bottom, left), det(bottom, right)])
+    stretch_squared = np.maximum.reduce([np.sum(v*v, axis=-1)
+                                         for v in (top, bottom, left, right)])
+    return area, stretch_squared
+
+
+def stabilize_grid(offsets, width, height):
+    """Relax only suspect cells and their neighbors; keep coherent motion."""
+    for _ in range(LIMIT_PASSES):
+        grid = quantize_grid(offsets)
+        area, stretch = cell_geometry(grid, width, height)
+        bad = (area < MIN_AREA_RATIO) | (stretch > MAX_EDGE_STRETCH**2)
+        if not bad.any():
+            return grid
+        # Mark all four corner nodes and taper the update into adjacent cells.
+        nodes = np.pad(bad, ((0, 1), (0, 1)))
+        nodes[1:] |= nodes[:-1].copy()
+        nodes[:, 1:] |= nodes[:, :-1].copy()
+        nodes = nodes.astype(np.float32)
+        feather = cv2.GaussianBlur(nodes, (5, 5), .82)
+        mix = np.maximum(.52 * nodes, .94 * feather)[..., None]
+        smooth = cv2.GaussianBlur(offsets, (5, 5), 1.02)
+        offsets = offsets + mix * (smooth - offsets)
+    return quantize_grid(offsets)
+
+
+def geometry_summary(grids, width, height):
+    folds, stretches = [], []
+    for grid in grids:
+        area, stretch = cell_geometry(grid, width, height)
+        folds.append(float((area <= 0).mean()))
+        stretches.append(float((stretch > MAX_EDGE_STRETCH**2).mean()))
+    return {"meanFoldedCellRatio": round(float(np.mean(folds)), 8),
+            "maxFoldedCellRatio": round(max(folds), 8),
+            "meanOverstretchedCellRatio": round(float(np.mean(stretches)), 8),
+            "maxOverstretchedCellRatio": round(max(stretches), 8)}
 
 
 def fit_appearance(residuals, rank, tile):
@@ -146,10 +216,12 @@ def main():
         raise SystemExit("Rank exceeds the number of frames.")
 
     x, y = mesh(w, h, 1)
-    sample_grids = {"coarse": mesh(w, h, 48), "dense": mesh(w, h, 8)}
+    sample_grids = {"coarse": mesh(w, h, 48), "previous": mesh(w, h, 8),
+                    "dense": mesh(w, h, STABLE_SPACING)}
     grids = {name: [] for name in sample_grids}
-    errors = {"still": [], "coarse": [], "dense": [], "refined": []}
-    fit = OpticalFit(base)
+    errors = {name: [] for name in ("still", *grids, "refined")}
+    baseline = OpticalFit(base)
+    dense_fit = OpticalFit(base, full_resolution=True)
     frames, predictions, residuals = [], [], []
     residual_size = ((w + 1) // 2, (h + 1) // 2)
 
@@ -162,10 +234,12 @@ def main():
             if error(frame, base) > .01:
                 raise SystemExit("Use the clip's original frame-0 base.webp.")
         frames.append(frame)
-        field = fit.solve(frame)
+        field = baseline.solve(frame)
+        tracked = dense_fit.solve(frame)
         errors["still"].append(error(base, frame))
         for name, (gx, gy) in sample_grids.items():
-            grid = np.rint(remap(field, gx, gy) / GRID_STEP).clip(-128, 127).astype(np.int8)
+            offsets = remap(tracked if name == "dense" else field, gx, gy)
+            grid = stabilize_grid(offsets, w, h) if name == "dense" else quantize_grid(offsets)
             grids[name].append(grid)
             prediction = reconstruct(base, grid, x, y)
             errors[name].append(error(prediction, frame))
@@ -188,8 +262,10 @@ def main():
 
     spatial_delta = basis.view(np.uint8) ^ np.uint8(128)
     spatial_delta[:, :, 1:] -= spatial_delta[:, :, :-1].copy()
-    correction_file = write_gzip(assets / "fit-correction.cbfit", weights, spatial_delta)
-    details = {name: grid_asset(assets, name, controls) for name, controls in grids.items()}
+    correction_file = write_gzip(assets / "fit-correction-stable.cbfit", weights, spatial_delta)
+    grid_files = {"coarse": "coarse", "previous": "dense", "dense": "dense-stable"}
+    details = {name: grid_asset(assets, grid_files[name], controls)
+               for name, controls in grids.items()}
     report = {
         "version": 1, "width": w, "height": h, "fps": fps,
         "frameCount": frame_count, "duration": frame_count / fps,
@@ -202,6 +278,12 @@ def main():
                        "rank": rank, "tile": TILE_SIZE, "tileCount": weights.shape[1],
                        "unitRgb": CORRECTION_STEP},
         "quality": {name: summary(values) for name, values in errors.items()},
+        "tracking": {
+            "resolution": [w, h], "targetMinAreaRatio": MIN_AREA_RATIO,
+            "maxEdgeStretch": MAX_EDGE_STRETCH,
+            "geometry": {name: geometry_summary(controls, w, h)
+                         for name, controls in grids.items()},
+        },
     }
     (assets / "fit.json").write_text(json.dumps(report, ensure_ascii=False, separators=(",", ":")) + "\n",
                                     encoding="utf-8")

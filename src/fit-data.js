@@ -44,6 +44,7 @@ export function modeSizes(meta) {
   return {
     brush: base + meta.brush.bytes,
     coarse: base + meta.grids.coarse.bytes,
+    previous: base + meta.grids.previous.bytes,
     dense,
     refined: dense + meta.correction.bytes,
   };
@@ -55,7 +56,8 @@ export function modeLabels(meta) {
   return {
     brush: `原有 ${meta.brush.count} 笔`,
     coarse: `粗网格 · ${points(meta.grids.coarse)} 点`,
-    dense: `细网格 · ${dense} 点`,
+    previous: `旧细网格 · ${points(meta.grids.previous)} 点`,
+    dense: `密追踪 · ${dense} 点`,
     refined: `${dense} 点＋${meta.correction.rank * meta.correction.tileCount} 项校正`,
   };
 }

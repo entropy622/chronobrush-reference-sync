@@ -8,6 +8,7 @@ const source = $("source");
 const modes = [...document.querySelectorAll("[data-mode]")];
 const edits = ["editX", "editY", "resetEdit"].map($);
 const regions = {
+  ring: { x: .11, y: .55, rx: .14, ry: .29, zoom: 2.42 },
   cape: { x: .31, y: .56, rx: .29, ry: .43, zoom: 1.82 },
   hair: { x: .8, y: .22, rx: .13, ry: .22, zoom: 2.42 },
   face: { x: .76, y: .43, rx: .11, ry: .23, zoom: 2.38 },
@@ -359,7 +360,7 @@ for (const button of modes) button.addEventListener("click", () => chooseMode(bu
 async function init() {
   try {
     if (new URLSearchParams(location.search).get("compare") === "off") $("referenceMode").value = "off";
-    const meta = state.meta = await loadJson("fit.json");
+    const meta = state.meta = await loadJson("fit.json?tracking=stable");
     state.labels = modeLabels(meta);
     state.sizes = modeSizes(meta);
     $("seek").max = meta.frameCount - 1;

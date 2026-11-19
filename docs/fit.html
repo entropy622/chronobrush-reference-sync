@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0d1219">
   <link rel="icon" href="data:,">
   <title>ChronoBrush · 独立拟合</title>
-  <script type="module" crossorigin src="./assets/fit-DQgQEc05.js"></script>
+  <script type="module" crossorigin src="./assets/fit-D3lTKJ1K.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/draw-Cm7jYr6N.js">
   <link rel="stylesheet" crossorigin href="./assets/fit-BwdsdNHQ.css">
 </head>
@@ -33,8 +33,9 @@
           <div id="modeButtons" class="segmented" role="group" aria-labelledby="modeLabel">
             <button type="button" data-mode="brush" aria-pressed="false">原有 96 笔</button>
             <button type="button" data-mode="coarse" aria-pressed="false">粗网格</button>
-            <button type="button" data-mode="dense" aria-pressed="false">细网格</button>
-            <button type="button" data-mode="refined" aria-pressed="true">细网格＋校正</button>
+            <button type="button" data-mode="previous" aria-pressed="false">旧细网格</button>
+            <button type="button" data-mode="dense" aria-pressed="false">密追踪</button>
+            <button type="button" data-mode="refined" aria-pressed="true">密追踪＋校正</button>
           </div>
         </div>
         <div class="tool">
@@ -42,6 +43,7 @@
           <select id="focus">
             <option value="all">全幅</option>
             <option value="cape">披风</option>
+            <option value="ring">前景金环</option>
             <option value="hair">发梢</option>
             <option value="face">脸与领口</option>
           </select>
@@ -58,7 +60,7 @@
 
       <div class="comparison" id="comparison">
         <figure class="view fitted">
-          <figcaption><span class="view-name"><i></i>独立拟合</span><span class="view-meta" id="fitLabel">细网格＋校正</span></figcaption>
+          <figcaption><span class="view-name"><i></i>独立拟合</span><span class="view-meta" id="fitLabel">密追踪＋校正</span></figcaption>
           <div class="viewport">
             <div class="zoom">
               <canvas id="fitCanvas" width="1470" height="630" aria-label="拟合结果"></canvas>
