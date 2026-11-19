@@ -9,7 +9,9 @@ npm install
 npm run dev
 ```
 
-打开 Vite 输出的地址。页面提供播放、逐帧步进、时间轴拖动、指令层开关、左右分屏对比，以及核心画面和叠加笔触的 MAE 读数。`npm test` 验证时间轴映射、状态插值、形变矩阵、贴图格坐标和预分析数据；`npm run build` 生成静态站点。
+打开 Vite 输出的地址。页面提供播放、逐帧步进、时间轴拖动、指令层开关、左右分屏对比，以及核心画面和叠加笔触的 MAE 读数。`npm test` 验证时间轴映射、状态插值、形变矩阵、贴图格坐标和预分析数据；`npm run build` 生成 `docs/` 静态站点。
+
+在线预览：<https://vipshao-arch.github.io/chronobrush-reference-sync/>。GitHub Pages 使用 `main` 分支的 `docs/` 目录，资源路径为相对路径。
 
 全分辨率抽样验收：
 

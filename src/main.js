@@ -1,4 +1,5 @@
 import { renderCommands } from "./draw.js";
+import { assetUrl } from "./assets.js";
 import { frameAtTime, meanAbsError, sheetCell } from "./timeline.js";
 import { loadRenderer } from "./webgl.js";
 
@@ -179,7 +180,7 @@ function loop() {
 
 async function init() {
   try {
-    const response = await fetch("/assets/timeline.json");
+    const response = await fetch(assetUrl("timeline.json"));
     if (!response.ok) throw new Error(`timeline.json ${response.status}`);
     const meta = await response.json();
     state.meta = meta;
@@ -191,7 +192,7 @@ async function init() {
     drawChart(meta, 0);
 
     state.sheetImage = new Image();
-    state.sheetImage.src = `/assets/${meta.sheet.file}`;
+    state.sheetImage.src = assetUrl(meta.sheet.file);
     await state.sheetImage.decode();
     state.renderer = await loadRenderer(els.gl, meta, els.clock);
     await new Promise((resolve, reject) => {

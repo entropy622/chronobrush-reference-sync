@@ -1,4 +1,5 @@
 import { sheetCell } from "./timeline.js";
+import { assetUrl } from "./assets.js";
 
 const VERT = `
 attribute vec2 a_position;
@@ -160,9 +161,9 @@ export class LockedWebGLRenderer {
 
 export async function loadRenderer(canvas, meta, video) {
   const [base, sheet, mask] = await Promise.all([
-    loadImage(`/assets/${meta.base.file}`),
-    loadImage(`/assets/${meta.sheet.file}`),
-    loadImage(`/assets/${meta.mask.file}`),
+    loadImage(assetUrl(meta.base.file)),
+    loadImage(assetUrl(meta.sheet.file)),
+    loadImage(assetUrl(meta.mask.file)),
   ]);
   return new LockedWebGLRenderer(canvas, meta, { base, sheet, mask }, video);
 }
