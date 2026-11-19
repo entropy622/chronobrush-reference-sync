@@ -262,8 +262,12 @@ function step(delta) {
   els.clock.pause();
   const meta = state.meta;
   const frame = frameAtTime(els.clock.currentTime, meta.fps, meta.frameCount);
-  els.clock.currentTime = Math.max(0, Math.min(meta.duration - 1 / meta.fps,
+  const target = Math.max(0, Math.min(meta.duration - 1 / meta.fps,
     (frame + delta) / meta.fps));
+  els.clock.addEventListener("seeked", () => render(els.clock.currentTime),
+                             { once: true });
+  els.clock.currentTime = target;
+  render(target);
 }
 
 els.stepBack.addEventListener("click", () => step(-1));
