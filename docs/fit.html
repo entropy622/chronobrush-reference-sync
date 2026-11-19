@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0d1219">
+  <link rel="icon" href="data:,">
+  <title>ChronoBrush · 独立拟合</title>
+  <script type="module" crossorigin src="./assets/fit-DQgQEc05.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/draw-Cm7jYr6N.js">
+  <link rel="stylesheet" crossorigin href="./assets/fit-BwdsdNHQ.css">
+</head>
+<body>
+  <main class="app">
+    <header class="masthead">
+      <a class="brand" href="./fit.html"><i aria-hidden="true"></i>ChronoBrush <span>实验室</span></a>
+      <a class="plain-link" href="./index.html">原版同步实验</a>
+    </header>
+
+    <section class="intro" aria-labelledby="title">
+      <div>
+        <p class="eyebrow">Rakan · 145 帧拟合实验</p>
+        <h1 id="title">独立拟合对照</h1>
+        <p>左侧从静态纹理、运动网格和颜色校正重建；右侧播放同一帧的原视频。</p>
+      </div>
+      <div class="status" id="status" role="status">载入拟合资产</div>
+    </section>
+
+    <section aria-label="画面对比">
+      <div class="compare-tools">
+        <div class="tool">
+          <span class="tool-label" id="modeLabel">拟合量</span>
+          <div id="modeButtons" class="segmented" role="group" aria-labelledby="modeLabel">
+            <button type="button" data-mode="brush" aria-pressed="false">原有 96 笔</button>
+            <button type="button" data-mode="coarse" aria-pressed="false">粗网格</button>
+            <button type="button" data-mode="dense" aria-pressed="false">细网格</button>
+            <button type="button" data-mode="refined" aria-pressed="true">细网格＋校正</button>
+          </div>
+        </div>
+        <div class="tool">
+          <label class="tool-label" for="focus">同步取景</label>
+          <select id="focus">
+            <option value="all">全幅</option>
+            <option value="cape">披风</option>
+            <option value="hair">发梢</option>
+            <option value="face">脸与领口</option>
+          </select>
+        </div>
+        <div class="tool">
+          <label class="tool-label" for="referenceMode">参考视图</label>
+          <select id="referenceMode">
+            <option value="source">原视频</option>
+            <option value="difference">差异热图</option>
+            <option value="off">关闭参考</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="comparison" id="comparison">
+        <figure class="view fitted">
+          <figcaption><span class="view-name"><i></i>独立拟合</span><span class="view-meta" id="fitLabel">细网格＋校正</span></figcaption>
+          <div class="viewport">
+            <div class="zoom">
+              <canvas id="fitCanvas" width="1470" height="630" aria-label="拟合结果"></canvas>
+              <canvas id="brushCanvas" width="1470" height="630" aria-label="原有笔触层" hidden></canvas>
+            </div>
+            <div class="screen-message" id="fitMessage">正在生成画面</div>
+          </div>
+        </figure>
+
+        <figure class="view reference" id="referenceView">
+          <figcaption>
+            <span class="view-name"><i></i><span id="referenceLabel">原视频</span></span>
+            <span class="view-meta" id="referenceInfo">H.264 · 1470 × 630</span>
+          </figcaption>
+          <div class="viewport">
+            <div class="zoom">
+              <video id="source" playsinline muted preload="none" aria-label="原始参考视频"></video>
+              <canvas id="difference" width="490" height="210" aria-label="每像素 RGB 差异热图" hidden></canvas>
+            </div>
+            <div class="screen-message" id="referenceMessage">正在载入参考</div>
+          </div>
+          <div id="heatLegend" class="heat-legend" hidden><span>平均通道差</span><i></i><span>0</span><span>8</span><span>24+</span></div>
+        </figure>
+      </div>
+
+      <div class="transport" aria-label="播放与逐帧定位">
+        <button type="button" class="primary" id="play" disabled>播放</button>
+        <button type="button" id="prev" aria-label="上一帧" disabled>−1 帧</button>
+        <button type="button" id="next" aria-label="下一帧" disabled>+1 帧</button>
+        <input type="range" id="seek" min="0" max="144" step="1" value="0" aria-label="定位帧" disabled>
+        <output id="frame">000 / 144</output><output id="time">0.000 s</output>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="文件大小与误差">
+      <div><span>当前拟合资产</span><strong id="fitBytes">—</strong><small id="fitSizeDetail">静态纹理＋所选数据</small></div>
+      <div><span>原视频</span><strong id="sourceBytes">—</strong><small id="sourceSizeDetail">MP4 文件大小</small></div>
+      <div><span>拟合平均误差</span><strong id="meanError">—</strong><small id="meanDetail">全分辨率 RGB MAE / 255</small></div>
+      <div><span>当前帧误差</span><strong id="frameError">—</strong><small id="frameErrorDetail">与右侧参考帧比较</small></div>
+    </section>
+
+    <details class="edit-panel">
+      <summary>试改局部位移 <span>选择上方的取景部位，用滑杆移动观察</span></summary>
+      <div class="edit-body">
+        <p id="editHelp">选择披风、发梢或脸与领口，观察局部移动时周围画面的变化。</p>
+        <div class="edit-controls">
+          <label for="editX">横向 <output id="editXValue">0 px</output></label>
+          <input id="editX" type="range" min="-40" max="40" value="0" disabled>
+          <label for="editY">纵向 <output id="editYValue">0 px</output></label>
+          <input id="editY" type="range" min="-40" max="40" value="0" disabled>
+          <button type="button" id="resetEdit" disabled>复位</button>
+        </div>
+      </div>
+    </details>
+    <footer>左侧拟合可独立播放。文件量按资产实际字节计算；静态纹理只计一次。</footer>
+  </main>
+</body>
+</html>
