@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import test from "node:test";
-import { decodeCorrection, decodeGrid, modeSizes } from "../src/fit-data.js";
+import { decodeCorrection, decodeGrid, gridInterval, modeSizes } from "../src/fit-data.js";
 
 const url = (file) => new URL("../public/assets/" + file, import.meta.url);
 const meta = JSON.parse(await readFile(url("fit.json")));
@@ -12,13 +12,14 @@ const unzip = async (spec) => {
 };
 
 test("each independent mode counts only its actual runtime assets", async () => {
-  const assets = [meta.base, meta.reference, meta.brush, meta.grids.coarse, meta.grids.previous, meta.grids.dense, meta.correction];
+  const assets = [meta.base, meta.reference, meta.brush, meta.grids.coarse, meta.grids.previous, meta.grids.dense, meta.grids.sparse, meta.correction];
   for (const spec of assets) assert.equal((await stat(url(spec.file))).size, spec.bytes, spec.file);
   assert.deepEqual(modeSizes(meta), {
     brush: meta.base.bytes + meta.brush.bytes,
     coarse: meta.base.bytes + meta.grids.coarse.bytes,
     previous: meta.base.bytes + meta.grids.previous.bytes,
     dense: meta.base.bytes + meta.grids.dense.bytes,
+    sparse: meta.base.bytes + meta.grids.sparse.bytes,
     refined: meta.base.bytes + meta.grids.dense.bytes + meta.correction.bytes,
   });
   assert.equal(meta.brush.count, 96);
@@ -52,7 +53,7 @@ test("appearance modes have finite per-frame weights and RGB bases for every til
 
 test("added fitting data improves full-resolution error over the entire clip", () => {
   assert.equal(meta.frameCount, 145);
-  for (const mode of ["still", "coarse", "previous", "dense", "refined"]) {
+  for (const mode of ["still", "coarse", "previous", "dense", "sparse", "refined"]) {
     const q = meta.quality[mode];
     assert.equal(q.perFrame.length, meta.frameCount);
     assert.ok(q.perFrame.every(Number.isFinite));
@@ -104,4 +105,38 @@ test("the shipped dense mesh reduces folds and extreme stretch versus the previo
     assert.ok(Math.abs(measured[name][1] - report.meanOverstretchedCellRatio) < 1e-7);
   }
   for (const i of [0, 1]) assert.ok(measured.dense[i] < measured.previous[i] / 10);
+});
+
+test("sparse motion stores exact dense samples and interpolates across nonuniform gaps", async () => {
+  const spec = meta.grids.sparse;
+  const dense = decodeGrid(await unzip(meta.grids.dense), meta.grids.dense, meta.frameCount);
+  const sparse = decodeGrid(await unzip(spec), spec, meta.frameCount);
+  assert.equal(sparse.stride, dense.stride);
+  const keys = spec.keyframes;
+  assert.ok(keys.length <= Math.ceil(meta.frameCount / 5));
+  assert.ok(spec.bytes < meta.grids.dense.bytes * .22);
+  for (const [i, frame] of keys.entries()) {
+    assert.deepEqual(gridInterval(sparse, frame), [i, i, 0]);
+    assert.deepEqual(sparse.data.subarray(i*sparse.stride, (i+1)*sparse.stride),
+                     dense.data.subarray(frame*dense.stride, (frame+1)*dense.stride));
+  }
+  for (let frame = 0; frame < meta.frameCount; frame++) {
+    if (keys.includes(frame)) continue;
+    const [left, right, alpha] = gridInterval(sparse, frame);
+    assert.equal(right, left + 1);
+    assert.ok(alpha > 0 && alpha < 1);
+    assert.ok(Math.abs((1-alpha)*keys[left] + alpha*keys[right] - frame) < 1e-9);
+  }
+  const { dense: baseline, sparse: result } = meta.quality;
+  assert.ok(result.mae - baseline.mae < .45);
+  assert.ok(Math.max(...result.perFrame.map((error, i) => error - baseline.perFrame[i])) < 1);
+  assert.ok(meta.tracking.geometry.sparse.meanFoldedCellRatio <=
+            meta.tracking.geometry.dense.meanFoldedCellRatio);
+});
+
+test("reject a sparse grid without a strictly increasing timeline covering both endpoints", () => {
+  const buffer = new Uint8Array(6).buffer;
+  for (const keys of [[0,2,2], [1,3,4], [0,1,3]]) {
+    assert.throws(() => decodeGrid(buffer, { rows: 1, cols: 1, keyframes: keys }, 5), /关键帧/);
+  }
 });

@@ -191,14 +191,149 @@ def summary(values):
             "perFrame": [round(v, 4) for v in values]}
 
 
+def interpolation_at(keyframes, frame):
+    right = int(np.searchsorted(keyframes, frame))
+    if keyframes[right] == frame:
+        return right, right, 0.
+    left = right - 1
+    fraction = (frame - keyframes[left]) / (keyframes[right] - keyframes[left])
+    return left, right, fraction
+
+
+def sparse_keyframes(base, frames, grids, target_keys):
+    """Pick intervals with a small cost in rendered space, not just flow space."""
+    n, h, w = frames.shape[:3]
+    if target_keys >= n:
+        return np.arange(n)
+    pw, ph = (w + 3) // 4, (h + 3) // 4
+    x, y = mesh(pw, ph, 1)
+    rows, cols = grids.shape[1:3]
+    u = ((x + .5) * (w / pw) - .5) * ((cols - 1) / (w - 1))
+    v = ((y + .5) * (h / ph) - .5) * ((rows - 1) / (h - 1))
+    scale = np.array([pw / w, ph / h], np.float32) * GRID_STEP
+    motion = [remap(g, u, v) * scale for g in grids]
+    still = cv2.resize(base, (pw, ph), interpolation=cv2.INTER_AREA)
+    source = [cv2.resize(f, (pw, ph), interpolation=cv2.INTER_AREA) for f in frames]
+
+    def draw(flow):
+        return remap(still, x + flow[..., 0], y + flow[..., 1])
+
+    dense = [draw(flow) for flow in motion]
+    dense_error = [error(fit, ref) for fit, ref in zip(dense, source)]
+
+    # Keep the worst interval error bounded. Penalize screen-space deviation
+    # from dense tracking as well, so matching the mean does not hide jumps.
+    max_gap, peak_limit = 16, .7
+    costs = np.full((n, max_gap + 1), np.inf)
+    for left in range(n - 1):
+        costs[left, 1] = 0
+        for gap in range(2, min(max_gap, n - left - 1) + 1):
+            right = left + gap
+            cost = 0.
+            for t in range(left + 1, right):
+                alpha = (t - left) / gap
+                prediction = draw(cv2.addWeighted(motion[left], 1-alpha, motion[right], alpha, 0))
+                extra = max(0., error(prediction, source[t]) - dense_error[t])
+                if extra > peak_limit:
+                    break
+                cost += extra + .25 * error(prediction, dense[t]) + .22 * extra**2
+            else:
+                costs[left, gap] = cost
+
+    # Find the lowest-cost path with the requested key count. If the cap on
+    # local error makes that infeasible, use the first larger feasible count.
+    distance = np.full(n, np.inf)
+    distance[0] = 0
+    parents = []
+    for step in range(1, n):
+        follow = np.full(n, np.inf)
+        parent = np.full(n, -1, np.int32)
+        for right in range(step, n):
+            gaps = np.arange(1, min(max_gap, right) + 1)
+            lefts = right - gaps
+            options = distance[lefts] + costs[lefts, gaps]
+            best = int(np.argmin(options))
+            parent[right] = lefts[best]
+            follow[right] = options[best]
+        parents.append(parent)
+        distance = follow
+        if step + 1 >= target_keys and np.isfinite(follow[-1]):
+            path = [n - 1]
+            for parents_at_step in reversed(parents):
+                path.append(int(parents_at_step[path[-1]]))
+            return np.array(path[::-1])
+    return np.arange(n)
+
+
+def add_sparse_motion(assets, report, target_keys, base=None, frames=None, grids=None):
+    spec = report["grids"]["dense"]
+    n, w, h = report["frameCount"], report["width"], report["height"]
+    if base is None:
+        base = np.array(Image.open(assets / report["base"]["file"]).convert("RGB"))
+    if frames is None:
+        cap = cv2.VideoCapture(str(assets / report["reference"]["file"]))
+        frames = []
+        for i in range(n):
+            ok, bgr = cap.read()
+            if not ok or bgr.shape[:2] != (h, w):
+                raise SystemExit(f"Invalid source frame {i}")
+            frames.append(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        cap.release()
+    if grids is None:
+        encoded = np.frombuffer(gzip.decompress((assets / spec["file"]).read_bytes()),
+                                np.uint8).reshape(n, spec["rows"], spec["cols"], 2)
+        grids = np.cumsum(encoded, axis=0, dtype=np.uint8) ^ np.uint8(128)
+        grids = grids.view(np.int8)
+    frames = np.asarray(frames)
+    grids = np.asarray(grids, np.float32)
+    keyframes = sparse_keyframes(base, frames, grids, target_keys)
+    samples = grids[keyframes]
+    packed = samples.astype(np.int8).view(np.uint8) ^ np.uint8(128)
+    # Store independent grids, with horizontal differences within each row.
+    packed[:, :, 1:] -= packed[:, :, :-1].copy()
+    asset = write_gzip(assets / "fit-dense-sparse.cbfit", packed)
+    report["grids"]["sparse"] = {
+        **asset, "rows": spec["rows"], "cols": spec["cols"], "unitPx": spec["unitPx"],
+        "encoding": "row-delta", "keyframes": keyframes.tolist(),
+    }
+    x, y = mesh(w, h, 1)
+    sparse_grids, errors = [], []
+    for frame, original in enumerate(frames):
+        left, right, alpha = interpolation_at(keyframes, frame)
+        grid = (cv2.addWeighted(samples[left], 1-alpha, samples[right], alpha, 0)
+                if alpha else samples[left])
+        sparse_grids.append(grid)
+        errors.append(error(reconstruct(base, grid, x, y), original))
+    report["quality"]["sparse"] = summary(errors)
+    report["tracking"]["geometry"]["sparse"] = geometry_summary(sparse_grids, w, h)
+    print(f"Sparse motion: {len(keyframes)}/{n} keys; {asset['bytes']} B; "
+          f"MAE {report['quality']['sparse']['mae']}", flush=True)
+
+
+def write_report(assets, report):
+    (assets / "fit.json").write_text(json.dumps(report, ensure_ascii=False, separators=(",", ":")) + "\n",
+                                    encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--assets", type=Path, default=ROOT / "public/assets",
                         help="directory containing reference.mp4, base.webp and timeline.json")
     parser.add_argument("--rank", type=int, choices=range(1, 33), metavar="1..32", default=24)
+    parser.add_argument("--motion-keys", type=int, default=24,
+                        help="target key count for sparse motion; more are allowed on complex motion")
+    parser.add_argument("--sparse-only", action="store_true",
+                        help="reuse the generated dense tracking and rebuild only sparse motion")
     args = parser.parse_args()
+    if args.motion_keys < 2:
+        parser.error("--motion-keys must be at least 2")
     cv2.setNumThreads(4)
     assets = args.assets
+    if args.sparse_only:
+        generated = json.loads((assets / "fit.json").read_text(encoding="utf-8"))
+        add_sparse_motion(assets, generated, args.motion_keys)
+        write_report(assets, generated)
+        return
     video = assets / "reference.mp4"
     still = assets / "base.webp"
     timeline = assets / "timeline.json"
@@ -285,8 +420,8 @@ def main():
                          for name, controls in grids.items()},
         },
     }
-    (assets / "fit.json").write_text(json.dumps(report, ensure_ascii=False, separators=(",", ":")) + "\n",
-                                    encoding="utf-8")
+    add_sparse_motion(assets, report, args.motion_keys, base, frames, grids["dense"])
+    write_report(assets, report)
     print(json.dumps({name: {k: v for k, v in values.items() if k != "perFrame"}
                       for name, values in report["quality"].items()}, indent=2), flush=True)
     print("Generated", *(f"{item['file']}={item['bytes']} bytes"

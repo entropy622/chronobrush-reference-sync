@@ -1,3 +1,5 @@
+import { gridInterval } from "./fit-data.js";
+
 const VERTEX = `#version 300 es
 out vec2 uv;
 void main() {
@@ -11,6 +13,8 @@ in vec2 uv;
 out vec4 outputColor;
 uniform sampler2D base;
 uniform sampler2D grid;
+uniform sampler2D nextGrid;
+uniform float gridMix;
 uniform sampler2D correction;
 uniform vec2 size;
 uniform vec2 gridSize;
@@ -29,7 +33,9 @@ void main() {
     vec2 offset = vec2(0.0);
     if (hasFlow) {
         vec2 point = (p * (gridSize - 1.0) / (size - 1.0) + 0.5) / gridSize;
-        offset = (texture(grid, point).rg * 255.0 - 128.0) * flowStep;
+        vec2 motion = texture(grid, point).rg;
+        if (gridMix > 0.0) motion = mix(motion, texture(nextGrid, point).rg, gridMix);
+        offset = (motion * 255.0 - 128.0) * flowStep;
     }
     vec3 color = texture(base, (p + offset + 0.5) / size).rgb;
     if (hasCorrection) {
@@ -115,11 +121,12 @@ export class FitRenderer {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
     this.frame = program(gl, FRAME,
-      "base grid correction size gridSize flowStep correctionStep hasFlow hasCorrection editCenter editRadii editShift");
+      "base grid nextGrid gridMix correction size gridSize flowStep correctionStep hasFlow hasCorrection editCenter editRadii editShift");
 
     this.still = texture(gl, gl.LINEAR);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, still);
-    this.flowTexture = texture(gl, gl.LINEAR);
+    this.rightFlow = { texture: texture(gl, gl.LINEAR) };
+    this.leftFlow = { texture: texture(gl, gl.LINEAR) };
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, 1, 1, 0, gl.RG, gl.UNSIGNED_BYTE, new Uint8Array([128,128]));
     // A complete texture for modes that skip the correction sampler.
     this.blank = texture(gl, gl.LINEAR);
@@ -169,29 +176,42 @@ export class FitRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
+  uploadFlow(slot, grid, index, unit) {
+    if (slot.grid === grid && slot.index === index) return;
+    const gl = this.gl;
+    const bytes = grid.data.subarray(index * grid.stride, (index + 1) * grid.stride);
+    bind(gl, slot.texture, unit);
+    if (slot.grid !== grid) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, grid.cols, grid.rows, 0, gl.RG, gl.UNSIGNED_BYTE, bytes);
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, grid.cols, grid.rows, gl.RG, gl.UNSIGNED_BYTE, bytes);
+    }
+    slot.grid = grid;
+    slot.index = index;
+  }
+
   render(frame, grid, refined, edit) {
     const gl = this.gl;
     if (refined) this.correct(frame);
-    if (grid && (this.lastGrid !== grid || this.lastGridFrame !== frame)) {
-      const bytes = grid.data.subarray(frame * grid.stride, (frame + 1) * grid.stride);
-      bind(gl, this.flowTexture, 1);
-      if (this.lastGrid !== grid) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, grid.cols, grid.rows, 0, gl.RG, gl.UNSIGNED_BYTE, bytes);
-      } else {
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, grid.cols, grid.rows, gl.RG, gl.UNSIGNED_BYTE, bytes);
-      }
-      this.lastGrid = grid;
-      this.lastGridFrame = frame;
+    let alpha = 0;
+    if (grid) {
+      const [left, right, mix] = gridInterval(grid, frame);
+      alpha = mix;
+      this.uploadFlow(this.leftFlow, grid, left, 1);
+      if (alpha > 0) this.uploadFlow(this.rightFlow, grid, right, 3);
     }
 
     const { id, u } = this.frame;
     gl.useProgram(id);
     gl.viewport(0, 0, this.width, this.height);
     bind(gl, this.still, 0);
-    bind(gl, this.flowTexture, 1);
+    bind(gl, this.leftFlow.texture, 1);
+    bind(gl, alpha > 0 ? this.rightFlow.texture : this.leftFlow.texture, 3);
     bind(gl, refined ? this.colorPlane : this.blank, 2);
     gl.uniform1i(u.base, 0);
     gl.uniform1i(u.grid, 1);
+    gl.uniform1i(u.nextGrid, 3);
+    gl.uniform1f(u.gridMix, alpha);
     gl.uniform1i(u.correction, 2);
     gl.uniform2f(u.size, this.width, this.height);
     gl.uniform1i(u.hasFlow, Boolean(grid));

@@ -58,7 +58,10 @@ function setFitStats() {
   const size = state.sizes[mode];
   const quality = state.meta.quality[mode];
   $("fitBytes").textContent = mb(size);
-  $("fitSizeDetail").textContent = byteFormat.format(size) + " B · " + number(size / state.meta.reference.bytes) + "× 原视频";
+  const sampleCount = state.meta.grids.sparse.keyframes.length;
+  $("fitSizeDetail").textContent = mode === "sparse"
+    ? byteFormat.format(size) + " B · 仅存 " + sampleCount + "/" + state.meta.frameCount + " 帧"
+    : byteFormat.format(size) + " B · " + number(size / state.meta.reference.bytes) + "× 原视频";
   $("meanError").textContent = quality ? number(quality.mae) : "—";
   $("meanDetail").textContent = quality
     ? state.meta.frameCount + " 帧全分辨率 · RGB MAE / 255"
@@ -168,6 +171,9 @@ function showFrame(frame, force = false) {
     const mode = state.mode;
     const grid = state.grid.get(mode === "refined" ? "dense" : mode);
     state.renderer.render(state.frame, grid, mode === "refined", state.pose);
+    if (mode === "sparse") {
+      $("fitLabel").textContent = grid.keyframes.includes(state.frame) ? "压缩追踪 · 已记录帧" : "压缩追踪 · 插值帧";
+    }
     if (mode === "brush") {
       const canvas = $("brushCanvas");
       renderCommands(canvas.getContext("2d"), state.brush, state.frame / state.meta.fps, canvas.width, canvas.height);
@@ -360,7 +366,7 @@ for (const button of modes) button.addEventListener("click", () => chooseMode(bu
 async function init() {
   try {
     if (new URLSearchParams(location.search).get("compare") === "off") $("referenceMode").value = "off";
-    const meta = state.meta = await loadJson("fit.json?tracking=stable");
+    const meta = state.meta = await loadJson("fit.json?tracking=sparse");
     state.labels = modeLabels(meta);
     state.sizes = modeSizes(meta);
     $("seek").max = meta.frameCount - 1;
@@ -374,7 +380,7 @@ async function init() {
     showFrame(Math.round((meta.frameCount - 1) * .16));
     changeReference();
     state.renderer = new FitRenderer($("fitCanvas"), meta, await loadStill(meta.base.file));
-    await chooseMode("refined");
+    await chooseMode("sparse");
   } catch (error) {
     setStatus(error.message, true);
     $("fitMessage").textContent = "拟合载入失败";

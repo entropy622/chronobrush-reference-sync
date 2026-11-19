@@ -19,7 +19,7 @@
       <div>
         <p class="eyebrow">Rakan · 145 帧拟合实验</p>
         <h1 id="title">独立拟合对照</h1>
-        <p>左侧从静态纹理、运动网格和颜色校正重建；右侧播放同一帧的原视频。</p>
+        <p>左侧独立拟合，右侧逐帧对照。默认只保存关键网格，中间帧插值；切换「密追踪」可看全帧记录。</p>
       </div>
       <div class="status" id="status" role="status">载入拟合资产</div>
     </section>
@@ -29,11 +29,12 @@
         <div class="tool">
           <span class="tool-label" id="modeLabel">拟合量</span>
           <div id="modeButtons" class="segmented" role="group" aria-labelledby="modeLabel">
+            <button type="button" data-mode="sparse" aria-pressed="true">压缩追踪</button>
             <button type="button" data-mode="brush" aria-pressed="false">原有 96 笔</button>
             <button type="button" data-mode="coarse" aria-pressed="false">粗网格</button>
             <button type="button" data-mode="previous" aria-pressed="false">旧细网格</button>
             <button type="button" data-mode="dense" aria-pressed="false">密追踪</button>
-            <button type="button" data-mode="refined" aria-pressed="true">密追踪＋校正</button>
+            <button type="button" data-mode="refined" aria-pressed="false">密追踪＋校正</button>
           </div>
         </div>
         <div class="tool">
@@ -58,7 +59,7 @@
 
       <div class="comparison" id="comparison">
         <figure class="view fitted">
-          <figcaption><span class="view-name"><i></i>独立拟合</span><span class="view-meta" id="fitLabel">密追踪＋校正</span></figcaption>
+          <figcaption><span class="view-name"><i></i>独立拟合</span><span class="view-meta" id="fitLabel">压缩追踪</span></figcaption>
           <div class="viewport">
             <div class="zoom">
               <canvas id="fitCanvas" width="1470" height="630" aria-label="拟合结果"></canvas>
