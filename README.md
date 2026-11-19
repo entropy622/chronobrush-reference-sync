@@ -1,0 +1,57 @@
+# ChronoBrush · 参考帧同步笔触重建
+
+这是一个从视频帧预分析出绘图指令，并在浏览器中以同一时间轴重建画面的实验项目。它把低时间方差的像素锁定为 WebGL 静态基底，把运动区域交给当前参考帧贴图；同时逐帧提取轮廓、颜色、光流位移和局部形变，生成椭圆、线段、贝塞尔曲线及笔触指令。运行时由 `video.currentTime` 同时选择参考帧和每条笔触的插值状态。
+
+## 本地运行
+
+```bash
+npm install
+npm run dev
+```
+
+打开 Vite 输出的地址。页面提供播放、逐帧步进、时间轴拖动、指令层开关、左右分屏对比，以及核心画面和叠加笔触的 MAE 读数。`npm test` 验证时间轴映射、状态插值、形变矩阵、贴图格坐标和预分析数据；`npm run build` 生成静态站点。
+
+全分辨率抽样验收：
+
+```bash
+python tools/verify_assets.py --video "参考.mp4" --out analysis/quality.json
+```
+
+脚本按 WebGL 着色器的 `smoothstep(0.055, 0.145, motion)` 混合规则模拟输出。本次 15 帧抽样的 1470×630 核心画面平均 MAE 为 **0.523/255**（最大 0.593/255），着色器严格锁定的像素占 14.23%，基底纹理更新 0 次。详细逐帧读数保存在 `analysis/quality.json`。
+
+## 重新预分析视频
+
+```bash
+python -m pip install opencv-python-headless numpy pillow scipy
+python tools/build_assets.py --video "参考.mp4" --out public/assets
+```
+
+默认使用全部 145 帧作为同步采样点。脚本会把原视频复制到 `public/assets/reference.mp4`，生成 `base.webp`（锁定基底）、`reference.webp`（逐帧贴图集）、`motion-mask.webp`（运动掩膜）和 `timeline.json`（绘图指令与时间参数）。`--keys` 可改采样帧数，`--primitives` 可改笔触数量，`--threshold` 可调整运动轮廓阈值。
+
+`timeline.json` 中每条指令包含四个控制点、绘制宽度、逐帧颜色和状态：
+
+```json
+{
+  "id": "stroke-0000",
+  "type": "bezier",
+  "points": [[x1, y1], [x2, y2], [x3, y3], [x4, y4]],
+  "states": [{
+    "t": 0.0,
+    "frame": 0,
+    "xy": [0, 0],
+    "rotation": 0,
+    "shape": [1, 1],
+    "color": [r, g, b],
+    "alpha": 0.2
+  }],
+  "motion": [[dx, dy, rotation, deformation]]
+}
+```
+
+`src/timeline.js` 按时间查找相邻状态并插值；`src/draw.js` 调用对应的绘图函数；`src/webgl.js` 将静态基底、视频当前帧和运动掩膜合成。锁定基底纹理初始化后从不更新，参考视频纹理则在同步时间变化时更新。面板中的位移与形变曲线来自逐帧 Farnebäck 光流。
+
+浏览器验收记录：第 88 帧的参考同步偏移为 0 帧 / 0 ms，核心 MAE 2.68、叠加笔触 MAE 3.55；暂停到第 105 帧后核心 MAE 0.78。页面上的 MAE 使用 147×63 缩略图实时计算，适合观察变化趋势；全分辨率数值以 `verify_assets.py` 为准。
+
+## 还原边界
+
+核心画面在动态区域由当前参考帧驱动，所以可以逼近逐像素还原；静态区域来自帧 0 的无损基底，不会随帧漂移。诊断笔触层是半透明的程序绘制结果，用于展示时间参数和形状变化，会略微提高它与参考帧的像素误差，可在页面上关闭。参考帧贴图集是低分辨率备份；正常播放时 WebGL 使用 `video.currentTime` 对应的原始分辨率视频帧。

@@ -1,0 +1,119 @@
+{
+  "sourceFrames": 145,
+  "fps": 24.0,
+  "sampledFrames": 15,
+  "width": 1470,
+  "height": 630,
+  "shaderLockedPixelRatio": 0.14231,
+  "meanMae": 0.52279,
+  "maxMae": 0.59256,
+  "meanLockedReferenceDrift": 1.07618,
+  "baseTextureUpdates": 0,
+  "frames": [
+    {
+      "frame": 0,
+      "time": 0.0,
+      "mae": 0.0,
+      "p95": 0.0,
+      "lockedReferenceDrift": 0.0
+    },
+    {
+      "frame": 10,
+      "time": 0.416667,
+      "mae": 0.45732,
+      "p95": 2.33712,
+      "lockedReferenceDrift": 0.91797
+    },
+    {
+      "frame": 21,
+      "time": 0.875,
+      "mae": 0.52644,
+      "p95": 2.76118,
+      "lockedReferenceDrift": 1.07981
+    },
+    {
+      "frame": 31,
+      "time": 1.291667,
+      "mae": 0.55117,
+      "p95": 2.86183,
+      "lockedReferenceDrift": 1.1318
+    },
+    {
+      "frame": 41,
+      "time": 1.708333,
+      "mae": 0.55231,
+      "p95": 2.86183,
+      "lockedReferenceDrift": 1.15214
+    },
+    {
+      "frame": 51,
+      "time": 2.125,
+      "mae": 0.55614,
+      "p95": 2.86183,
+      "lockedReferenceDrift": 1.16854
+    },
+    {
+      "frame": 62,
+      "time": 2.583333,
+      "mae": 0.57162,
+      "p95": 2.98421,
+      "lockedReferenceDrift": 1.18497
+    },
+    {
+      "frame": 72,
+      "time": 3.0,
+      "mae": 0.57727,
+      "p95": 2.98421,
+      "lockedReferenceDrift": 1.18752
+    },
+    {
+      "frame": 82,
+      "time": 3.416667,
+      "mae": 0.58263,
+      "p95": 2.98421,
+      "lockedReferenceDrift": 1.19927
+    },
+    {
+      "frame": 93,
+      "time": 3.875,
+      "mae": 0.57456,
+      "p95": 2.98421,
+      "lockedReferenceDrift": 1.19795
+    },
+    {
+      "frame": 103,
+      "time": 4.291667,
+      "mae": 0.57677,
+      "p95": 2.98421,
+      "lockedReferenceDrift": 1.20156
+    },
+    {
+      "frame": 113,
+      "time": 4.708333,
+      "mae": 0.58639,
+      "p95": 2.98422,
+      "lockedReferenceDrift": 1.21068
+    },
+    {
+      "frame": 123,
+      "time": 5.125,
+      "mae": 0.59109,
+      "p95": 2.98422,
+      "lockedReferenceDrift": 1.21041
+    },
+    {
+      "frame": 134,
+      "time": 5.583333,
+      "mae": 0.59256,
+      "p95": 2.98422,
+      "lockedReferenceDrift": 1.22051
+    },
+    {
+      "frame": 144,
+      "time": 6.0,
+      "mae": 0.54563,
+      "p95": 2.80405,
+      "lockedReferenceDrift": 1.07954
+    }
+  ]
+}
